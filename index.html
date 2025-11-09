@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Deep Sea Diver: Alpha-Theta Neurofeedback Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tone.js CDN for Web Audio Synthesis -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        /* Custom styles for the game environment, overriding Tailwind defaults where necessary */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1a26; /* Dark slate blue for deep ocean feeling */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 1rem;
+        }
+        .game-container {
+            width: 100%;
+            max-width: 800px;
+            background-color: #1e293b; /* Slightly lighter inner background */
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4), 0 0 50px rgba(13, 26, 38, 0.8);
+            overflow: hidden;
+            border: 4px solid #3b82f6;
+        }
+        #game-canvas {
+            background: linear-gradient(to bottom, #113355, #001f3f, #001122); /* Deep blue gradient */
+            border-radius: 0.5rem;
+            box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.6);
+            cursor: pointer;
+        }
+        
+        /* --- PROGRESS BAR STYLES --- */
+        .bar-display-container {
+            padding: 0.75rem;
+            border-radius: 0.75rem;
+            background-color: #0f172a; /* Dark background for visibility */
+            transition: box-shadow 0.3s ease, border-color 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .value-label {
+            font-weight: 700;
+            margin-bottom: 0.35rem;
+            color: #cbd5e1;
+            font-size: 1.125rem;
+        }
+        
+        .bar-track {
+            height: 20px;
+            background-color: #334155; /* Dark track color */
+            border-radius: 9999px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+        }
+
+        .bar-fill {
+            height: 100%;
+            width: 0%;
+            border-radius: 9999px;
+            /* Smoother transition, even with debounced status */
+            transition: width 0.3s ease-out, background-color 0.3s ease; 
+            position: absolute;
+            left: 0;
+            top: 0;
+            box-shadow: 0 0 5px rgba(255, 255, 255, 0.3);
+        }
+
+        .threshold-marker {
+            position: absolute;
+            height: 100%;
+            z-index: 10;
+            background: rgba(255, 255, 255, 0.1); 
+            border-left: 2px solid rgba(255, 255, 255, 0.7);
+            box-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
+        }
+
+        /* Gold Glow for Ideal Crossover Range */
+        .glow-active {
+            border-color: #facc15 !important;
+            box-shadow: 0 0 5px #facc15, 0 0 15px #facc15, 0 0 25px #ffb300 !important;
+        }
+        
+        /* Base styles for feedback */
+        #feedback {
+            transition: all 0.3s ease;
+            font-weight: 700;
+        }
+
+        /* Neon Flash Effect for SUCCESS */
+        .neon-flash-active {
+            animation: neon-flash 0.5s ease-out forwards;
+        }
+        
+        @keyframes neon-flash {
+            0% { 
+                box-shadow: 0 0 5px #fff, 0 0 10px #34d399; 
+                opacity: 0.5;
+            }
+            50% { 
+                box-shadow: 0 0 20px #34d399, 0 0 40px #10b981; 
+                opacity: 1;
+            }
+            100% { 
+                box-shadow: 0 0 10px #10b981; 
+                opacity: 1; 
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="game-container">
+    <div class="p-6 control-panel">
+        <h1 class="text-3xl font-extrabold text-white mb-2 text-center">The Deep Sea Diver (Alpha-Theta NeuroFeedback)</h1>
+        <p class="text-sm text-gray-400 text-center mb-4">Goal: Achieve simultaneous high Alpha (Relaxation) and Theta (Depth) to move the Diver toward the Treasure.</p>
+
+        <!-- Wave Power Display (Progress Bars) -->
+        <div class="flex justify-between space-x-4 mb-4 text-center">
+            
+            <!-- Alpha Power Bar (Light Blue) -->
+            <div id="alpha-bar-container" class="bar-display-container w-full">
+                <div class="value-label text-left" id="alpha-value-label">α Alpha Power: 8.0</div>
+                <div class="bar-track">
+                    <!-- Ideal Crossover Goal Marker -->
+                    <div class="threshold-marker" id="alpha-threshold-marker"></div>
+                    <!-- Dynamic Fill -->
+                    <div class="bar-fill" id="alpha-bar-fill"></div>
+                </div>
+            </div>
+            
+            <!-- Theta Power Bar (Purple) -->
+            <div id="theta-bar-container" class="bar-display-container w-full">
+                <div class="value-label text-left" id="theta-value-label">θ Theta Power: 6.0</div>
+                <div class="bar-track">
+                    <!-- Ideal Crossover Goal Marker -->
+                    <div class="threshold-marker" id="theta-threshold-marker"></div>
+                    <!-- Dynamic Fill -->
+                    <div class="bar-fill" id="theta-bar-fill"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Instructions/Feedback -->
+        <div id="feedback" class="p-3 rounded-lg text-sm text-center font-mono bg-red-600 text-white shadow-md shadow-red-500/50">
+            Click the screen to start audio.
+        </div>
+    </div>
+
+    <!-- Game Canvas -->
+    <canvas id="game-canvas" width="800" height="400" class="w-full"></canvas>
+</div>
+
+<script>
+    // --- CANVAS AND GAME SETUP ---
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const feedbackText = document.getElementById('feedback');
+    
+    // NEW Bar Element References
+    const alphaLabel = document.getElementById('alpha-value-label');
+    const alphaBarFill = document.getElementById('alpha-bar-fill');
+    const alphaThresholdMarker = document.getElementById('alpha-threshold-marker');
+    const alphaBarContainer = document.getElementById('alpha-bar-container');
+
+    const thetaLabel = document.getElementById('theta-value-label');
+    const thetaBarFill = document.getElementById('theta-bar-fill');
+    const thetaThresholdMarker = document.getElementById('theta-threshold-marker');
+    const thetaBarContainer = document.getElementById('theta-bar-container');
+    
+    // Game variables
+    let gameLoopInterval;
+    let diverX = 50;
+    let treasureX; 
+    const TREASURE_Y = canvas.height * 0.8;
+    const INITIAL_DIVER_Y = canvas.height * 0.5;
+    const TREASURE_OFFSET = 20; 
+    let diverY = INITIAL_DIVER_Y;
+    
+    // Movement Constants (Calculated for ~22.5 min at 50% success on standard desktop screen)
+    const GAME_LOOP_INTERVAL_MS = 100; // 100ms per step
+    const MOVEMENT_RATE = 0.101; // Pixels moved per step when successful (very slow)
+    // Removed FAIL_MOVEMENT_RATE, as the diver will only stop or go forward.
+    
+    // Status Debouncing
+    const STATUS_DEBOUNCE_TIME = 500; // 0.5 seconds of sustained status change
+    let currentStatus = "initial"; // The status currently displayed
+    let pendingStatus = "initial"; // The status the game is currently achieving
+    let pendingStatusStartTime = 0; // Time when pendingStatus started
+
+    // Mock EEG Variables
+    let mockAlpha = 8.0; 
+    let mockTheta = 6.0; 
+    const MAX_POWER = 12; // Maximum value for the bar (100% width)
+    const ALPHA_THRESHOLD = 9.0; // Ideal range starts here
+    const THETA_THRESHOLD = 7.0; // Ideal range starts here
+    
+    // Ambient Ocean Variables
+    let particles = [];
+    let seaAnimals = [];
+    const PARTICLE_COUNT = 250;
+    const FISH_COUNT = 5;
+    const JELLYFISH_COUNT = 3;
+    
+    // Bubbles emitted by the diver
+    let diverBubbles = [];
+
+    // Audio Variables
+    let oceanNoise, oceanFilter;
+    let audioInitialized = false;
+
+    // Color Constants for HSL mapping (Light Blue and Purple)
+    const ALPHA_HUE = 210; 
+    const THETA_HUE = 280; 
+    const MIN_POWER_ALPHA = 8.0;
+    const MIN_POWER_THETA = 5.0; 
+
+
+    // --- AUDIO FUNCTIONS (Tone.js) ---
+
+    /**
+     * Initializes Tone.js synths. Must be called after user interaction.
+     */
+    async function initAudio() {
+        if (audioInitialized) return; 
+        
+        try {
+            await Tone.start();
+            
+            oceanNoise = new Tone.Noise("brown").toDestination();
+            oceanFilter = new Tone.AutoFilter({
+                frequency: "8m", 
+                baseFrequency: 100, 
+                octaves: 4
+            }).toDestination();
+            const reverb = new Tone.Reverb(2).toDestination();
+            oceanNoise.connect(oceanFilter);
+            oceanFilter.connect(reverb);
+            oceanNoise.start();
+            oceanFilter.start();
+            oceanNoise.volume.value = -35; 
+
+            audioInitialized = true;
+            console.log("Audio Initialized");
+            
+        } catch (e) {
+            console.error("Audio failed to initialize:", e);
+        }
+    }
+
+    // --- COLOR UTILITY ---
+    function getHslColor(power, hue, minPower) {
+        // Normalize power relative to the min for color saturation
+        const normalized = Math.min(1, Math.max(0, (power - minPower) / (MAX_POWER - minPower)));
+        const saturation = Math.round(50 + normalized * 50);
+        const lightness = Math.round(40 + normalized * 25); // Max lightness is 65% for color visibility
+        return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+    }
+
+    // --- AMBIENT WATER AND SEA LIFE CLASSES (Omitted for brevity, assumed unchanged) ---
+    class Particle {
+        constructor(x, y) {
+            this.x = x || Math.random() * canvas.width;
+            this.y = y || Math.random() * canvas.height;
+            this.radius = Math.random() * 1.5 + 0.5;
+            this.vy = -0.1 * (Math.random() * 0.5 + 0.5);
+            this.color = `rgba(180, 200, 255, ${Math.random() * 0.2 + 0.1})`;
+        }
+        update() {
+            this.y += this.vy;
+            this.x += Math.sin(Date.now() * 0.001 + this.y * 0.01) * 0.1; 
+            if (this.y < 0) {
+                this.y = canvas.height + this.radius;
+                this.x = Math.random() * canvas.width;
+            }
+        }
+        draw() {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = this.color;
+            ctx.fill();
+        }
+    }
+
+    function initParticles() {
+        particles = [];
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+            particles.push(new Particle());
+        }
+    }
+
+    class BaseAnimal {
+        constructor(color) {
+            this.x = Math.random() * canvas.width;
+            this.y = Math.random() * canvas.height;
+            this.color = color;
+            this.size = Math.random() * 8 + 10; 
+            this.vx = (Math.random() > 0.5 ? 1 : -1) * (Math.random() * 0.3 + 0.1); 
+            this.vy = (Math.random() > 0.5 ? 1 : -1) * (Math.random() * 0.3 + 0.1); 
+            this.directionTimer = Math.random() * 300; 
+        }
+        updateMovement() {
+            this.x += this.vx;
+            this.y += this.vy;
+            if (this.x < 0 || this.x > canvas.width) {
+                this.vx *= -1;
+                this.x = this.x < 0 ? 0 : canvas.width; 
+            }
+            if (this.y < 50 || this.y > canvas.height - 50) {
+                this.vy *= -1;
+                this.y = this.y < 50 ? 50 : canvas.height - 50; 
+            }
+            this.directionTimer++;
+            if (this.directionTimer > 300) { 
+                this.vx = (Math.random() * 0.3 + 0.1) * (this.vx > 0 ? 1 : -1);
+                this.vy = (Math.random() * 0.3 + 0.1) * (this.vy > 0 ? 1 : -1);
+                this.directionTimer = 0;
+            }
+        }
+    }
+
+    class Fish extends BaseAnimal {
+        constructor() {
+            super(`hsl(${Math.random() * 360}, 70%, 60%)`);
+        }
+        draw() {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            const angle = Math.atan2(this.vy, this.vx);
+            ctx.rotate(angle);
+            ctx.beginPath();
+            ctx.ellipse(0, 0, this.size * 1.5, this.size * 0.6, 0, 0, Math.PI * 2);
+            ctx.fillStyle = this.color;
+            ctx.shadowColor = this.color;
+            ctx.shadowBlur = 5; 
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(-this.size * 1.5, 0);
+            ctx.lineTo(-this.size * 2, -this.size * 0.5);
+            ctx.lineTo(-this.size * 2, this.size * 0.5);
+            ctx.closePath();
+            ctx.fillStyle = `rgba(255, 255, 255, 0.5)`;
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(this.size * 1, 0, this.size * 0.15, 0, Math.PI * 2);
+            ctx.fillStyle = 'black';
+            ctx.fill();
+            ctx.restore();
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    class Jellyfish extends BaseAnimal {
+        constructor() {
+            super(`rgba(150, 200, 255, 0.6)`);
+            this.vx = (Math.random() > 0.5 ? 1 : -1) * (Math.random() * 0.1 + 0.05); 
+            this.vy = (Math.random() > 0.5 ? 1 : -1) * (Math.random() * 0.1 + 0.05);
+            this.waveOffset = Math.random() * 1000;
+        }
+        updateMovement() {
+            super.updateMovement();
+            this.y += Math.sin(Date.now() * 0.001 + this.waveOffset) * 0.2;
+        }
+        draw() {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.beginPath();
+            ctx.arc(0, 0, this.size, 0, Math.PI, true);
+            ctx.bezierCurveTo(this.size * 0.8, this.size * 0.5, -this.size * 0.8, this.size * 0.5, 0, 0);
+            ctx.closePath();
+            ctx.fillStyle = this.color;
+            ctx.shadowColor = `rgba(150, 200, 255, 1)`;
+            ctx.shadowBlur = 15;
+            ctx.fill();
+            ctx.shadowBlur = 0; 
+            for (let i = 0; i < 6; i++) {
+                ctx.beginPath();
+                ctx.moveTo(i * 3 - 7, this.size * 0.5);
+                const tentacleWave = Math.sin(Date.now() * 0.002 + this.waveOffset + i) * 5;
+                ctx.lineTo(i * 3 - 7 + tentacleWave, this.size * 3);
+                ctx.strokeStyle = `rgba(150, 200, 255, 0.4)`;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+    }
+
+    function initSeaAnimals() {
+        seaAnimals = [];
+        for (let i = 0; i < FISH_COUNT; i++) {
+            seaAnimals.push(new Fish());
+        }
+        for (let i = 0; i < JELLYFISH_COUNT; i++) {
+            seaAnimals.push(new Jellyfish());
+        }
+    }
+    
+    // --- MOCK EEG SIMULATION ---
+    function simulateNeurofeedback() {
+        mockAlpha += (Math.random() * 0.4 - 0.2);
+        mockAlpha = Math.min(MAX_POWER, Math.max(MIN_POWER_ALPHA, mockAlpha)); 
+        
+        mockTheta += (Math.random() * 0.5 - 0.25);
+        mockTheta = Math.min(MAX_POWER, Math.max(MIN_POWER_THETA, mockTheta)); 
+    }
+    
+    // --- BUBBLE LOGIC ---
+    /** Adds a new bubble to the array, emitted from the diver's helmet */
+    function emitDiverBubble(diverX, diverY) {
+        if (Math.random() < 0.2) { 
+            const xOffset = (Math.random() - 0.5) * 5;
+            const size = Math.random() * 2 + 1;
+            diverBubbles.push({
+                x: diverX + xOffset,
+                y: diverY - 10, 
+                radius: size,
+                vy: -Math.random() * 0.5 - 0.5, 
+                opacity: 0.8
+            });
+            if (diverBubbles.length > 50) {
+                diverBubbles.shift();
+            }
+        }
+    }
+
+    /** Updates and draws the diver's bubbles */
+    function drawDiverBubbles() {
+        for (let i = diverBubbles.length - 1; i >= 0; i--) {
+            const bubble = diverBubbles[i];
+            
+            bubble.y += bubble.vy;
+            bubble.x += Math.sin(bubble.y * 0.05) * 0.1; 
+            bubble.opacity -= 0.01;
+            bubble.radius *= 0.995; 
+
+            if (bubble.y < 0 || bubble.opacity <= 0.0) {
+                diverBubbles.splice(i, 1); 
+                continue;
+            }
+
+            // Draw
+            ctx.beginPath();
+            ctx.arc(bubble.x, bubble.y, bubble.radius, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(200, 220, 255, ${bubble.opacity})`;
+            ctx.shadowColor = `rgba(200, 220, 255, ${bubble.opacity})`;
+            ctx.shadowBlur = bubble.radius;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+    }
+    
+    // --- GAME RENDERING (Omitted for brevity, assumed unchanged) ---
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawAmbientWater();
+        seaAnimals.forEach(animal => {
+            animal.updateMovement();
+            animal.draw();
+        });
+        
+        drawDiverLight(); 
+        drawTreasureLight(); 
+
+        drawTreasure();
+        drawDiver();
+        drawDiverBubbles(); 
+        drawOverlay();
+    }
+    
+    function drawDiverLight() {
+        ctx.save();
+        
+        const gradient = ctx.createRadialGradient(
+            diverX, diverY, 1,      
+            diverX, diverY, 150     
+        );
+
+        gradient.addColorStop(0, 'rgba(255, 255, 200, 0.4)'); 
+        gradient.addColorStop(0.3, 'rgba(173, 216, 230, 0.1)'); 
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)'); 
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(diverX, diverY, 150, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    function drawTreasureLight() {
+        ctx.save();
+        
+        const gradient = ctx.createRadialGradient(
+            treasureX, TREASURE_Y - 25, 5,      
+            treasureX, TREASURE_Y - 25, 100     
+        );
+
+        gradient.addColorStop(0, 'rgba(255, 223, 0, 0.5)'); 
+        gradient.addColorStop(0.3, 'rgba(255, 180, 0, 0.2)'); 
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)'); 
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(treasureX, TREASURE_Y - 25, 100, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+    
+    function drawAmbientWater() {
+        particles.forEach(p => {
+            p.update();
+            p.draw();
+        });
+    }
+
+    function drawTreasure() {
+        const CHEST_WIDTH = 45;
+        const CHEST_HEIGHT = 35;
+        
+        ctx.save();
+
+        // --- Chest Body ---
+        ctx.fillStyle = '#A0522D'; 
+        ctx.beginPath();
+        ctx.roundRect(treasureX - CHEST_WIDTH/2, TREASURE_Y - CHEST_HEIGHT, CHEST_WIDTH, CHEST_HEIGHT, 5); 
+        ctx.fill();
+
+        // --- Chest Lid (slightly open) ---
+        ctx.fillStyle = '#B8860B'; 
+        ctx.beginPath();
+        ctx.fillRect(treasureX - CHEST_WIDTH/2 - 2, TREASURE_Y - CHEST_HEIGHT - 10, CHEST_WIDTH + 4, 15);
+        ctx.fill();
+
+        // --- Piled Treasures: Gold Coins and Jewels ---
+        const pileY = TREASURE_Y - CHEST_HEIGHT - 5; 
+
+        // 1. Gold Coins
+        ctx.shadowColor = '#FFD700'; 
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = '#FFD700';
+        
+        const coins = [
+            { x: -15, y: -5, r: 5 }, { x: 5, y: -10, r: 6 }, { x: 20, y: -5, r: 4 },
+            { x: -22, y: -12, r: 3 }, { x: 10, y: -15, r: 5 }, { x: -8, y: -3, r: 4 }, 
+            { x: -18, y: -18, r: 3 }, { x: 18, y: -18, r: 3 } 
+        ];
+        coins.forEach(c => {
+            ctx.beginPath();
+            ctx.arc(treasureX + c.x, pileY + c.y, c.r, 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        // 2. Colorful Jewels
+        const jewels = [
+            { x: -10, y: -12, r: 3, color: '#DC2626' }, 
+            { x: 0, y: -18, r: 4, color: '#3B82F6' },
+            { x: 15, y: -15, r: 3, color: '#10B981' },
+            { x: -2, y: -5, r: 2.5, color: '#8B5CF6' },
+            { x: -25, y: -5, r: 4, color: '#67E8F9' },
+            { x: 8, y: -22, r: 3.5, color: '#FB923C' }
+        ];
+
+        jewels.forEach(j => {
+            ctx.fillStyle = j.color;
+            ctx.shadowColor = j.color; 
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.arc(treasureX + j.x, pileY + j.y, j.r, 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        ctx.shadowBlur = 0; 
+
+        // --- Subtitle Text ---
+        ctx.fillStyle = '#FFD700'; 
+        ctx.font = '24px Inter, sans-serif'; 
+        ctx.textAlign = 'center';
+        ctx.shadowColor = 'black'; 
+        ctx.shadowBlur = 5;
+        ctx.fillText('TREASURE', treasureX, TREASURE_Y + 25); 
+        ctx.shadowBlur = 0; 
+        
+        ctx.restore();
+    }
+    
+    function drawDiver() {
+        const helmetColor = '#94a3b8'; 
+        const suitColor = '#3b82f6'; 
+        const isCrossover = mockAlpha >= ALPHA_THRESHOLD && mockTheta >= THETA_THRESHOLD;
+
+        ctx.save();
+        ctx.translate(diverX, diverY);
+        
+        // --- 1. O2 TANK ---
+        const tankColor = '#334155'; 
+        ctx.fillStyle = tankColor;
+        ctx.beginPath();
+        ctx.fillRect(-6, -5, 12, 30); 
+        ctx.fillStyle = '#64748b';
+        ctx.fillRect(-3, -8, 6, 3);
+        
+        // --- 2. Body (torso) ---
+        ctx.fillStyle = suitColor;
+        ctx.beginPath();
+        ctx.roundRect(-8, 5, 16, 20, 4); 
+        ctx.fill();
+
+        // --- 3. Flippers ---
+        ctx.fillStyle = "#334155";
+        ctx.beginPath();
+        ctx.ellipse(-6, 28, 4, 10, Math.PI * 0.1, 0, Math.PI * 2); 
+        ctx.ellipse(6, 28, 4, 10, -Math.PI * 0.1, 0, Math.PI * 2); 
+        ctx.fill();
+
+        // --- 4. Helmet ---
+        ctx.fillStyle = helmetColor;
+        ctx.beginPath();
+        ctx.arc(0, 0, 10, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // --- 5. Mask/Visor ---
+        ctx.strokeStyle = '#334155'; 
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 8, 7, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Inner Visor (Feedback for Alpha/Theta Crossover)
+        ctx.fillStyle = isCrossover ? '#facc15' : 'rgba(0, 0, 0, 0.5)'; 
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 7, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // --- 6. Oxygen Line (Visualizing the Alpha Connection) ---
+        ctx.strokeStyle = mockAlpha >= ALPHA_THRESHOLD ? 'hsl(210, 80%, 60%)' : 'hsl(210, 50%, 40%)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, -10);
+        ctx.lineTo(0, -diverY); 
+        ctx.stroke();
+
+        // --- 7. BUBBLE EMITTER (NEW LOGIC CALL) ---
+        emitDiverBubble(diverX, diverY);
+
+        ctx.restore();
+    }
+
+    function drawOverlay() {
+        const isCrossover = mockAlpha >= ALPHA_THRESHOLD && mockTheta >= THETA_THRESHOLD; 
+        
+        const successColor = 'rgba(74, 202, 255, 0.8)'; 
+        const intermediateColor = 'rgba(239, 108, 255, 0.8)'; 
+        
+        ctx.fillStyle = isCrossover ? successColor : intermediateColor;
+        ctx.font = '16px Inter';
+        ctx.textAlign = 'left';
+        // Note: The feedback text here is just for an overlay; the main feedback is debounced
+        ctx.fillText(isCrossover ? 'Flow State active.' : 'Seeking Flow State...', 10, 20);
+    }
+
+
+    // --- GAME UPDATE LOGIC ---
+    function updateGame() {
+        if (!audioInitialized) return; 
+        
+        simulateNeurofeedback();
+        
+        const isAlphaHigh = mockAlpha >= ALPHA_THRESHOLD;
+        const isThetaHigh = mockTheta >= THETA_THRESHOLD;
+        const isCrossover = isAlphaHigh && isThetaHigh;
+        const isIntermediate = (isAlphaHigh && !isThetaHigh) || (!isAlphaHigh && isThetaHigh);
+        
+        let newStatus = "fail";
+        if (isCrossover) newStatus = "success";
+        if (isIntermediate) newStatus = "intermediate";
+
+        // 1. Status Debouncing Logic
+        if (newStatus !== pendingStatus) {
+            // New status detected, reset timer
+            pendingStatus = newStatus;
+            pendingStatusStartTime = Date.now();
+        }
+
+        const timeElapsed = Date.now() - pendingStatusStartTime;
+        
+        if (pendingStatus !== currentStatus && timeElapsed >= STATUS_DEBOUNCE_TIME) {
+            // Status has been stable for long enough, commit the change
+            currentStatus = pendingStatus;
+            
+            // Apply Feedback Text Styling
+            feedbackText.className = 'p-3 rounded-lg text-sm text-center font-mono transition-all duration-300'; 
+            
+            if (currentStatus === "success") {
+                feedbackText.textContent = "SUCCESS: You are in the Flow State. Diver moving forward.";
+                feedbackText.classList.add('bg-blue-600', 'text-white', 'shadow-md', 'shadow-blue-500/50');
+                feedbackText.classList.add('neon-flash-active');
+                // Remove flash class after animation
+                setTimeout(() => { feedbackText.classList.remove('neon-flash-active'); }, 600);
+            } else if (currentStatus === "intermediate") {
+                // Updated text: Diver is now STOPPED, not drifting back
+                feedbackText.textContent = "Getting there! One wave is high, focus on the other. Diver is stopped.";
+                feedbackText.classList.add('bg-purple-500', 'text-white', 'shadow-md', 'shadow-purple-500/50');
+            } else { // "fail"
+                // Updated text: Diver is now STOPPED, not drifting back
+                feedbackText.textContent = "Try to relax more and focus on depth. Diver is stopped.";
+                feedbackText.classList.add('bg-red-600', 'text-white', 'shadow-md', 'shadow-red-500/50');
+            }
+        }
+
+        // 2. Horizontal Movement (ONLY GO FORWARD ON SUCCESS)
+        if (isCrossover) {
+            diverX += MOVEMENT_RATE;
+        } 
+        // If not isCrossover, diverX remains unchanged (stops).
+
+        // 3. Vertical Movement (Theta's Influence: Depth)
+        const thetaNorm = mockTheta / MAX_POWER; 
+        const targetY = INITIAL_DIVER_Y + (canvas.height - INITIAL_DIVER_Y - 50) * thetaNorm; 
+        const alphaFactor = (mockAlpha - MIN_POWER_ALPHA) / (MAX_POWER - MIN_POWER_ALPHA); 
+        const smoothness = 0.05 + 0.1 * alphaFactor;
+        diverY += (targetY - diverY) * smoothness; 
+
+        // 4. Update Display & Dynamic Bars
+        
+        // Calculate Fill Widths (normalized to max power)
+        const alphaPercent = Math.min(100, (mockAlpha / MAX_POWER) * 100);
+        const thetaPercent = Math.min(100, (mockTheta / MAX_POWER) * 100);
+
+        // Alpha Logic (Light Blue)
+        const alphaColor = getHslColor(mockAlpha, ALPHA_HUE, MIN_POWER_ALPHA);
+        alphaLabel.textContent = `α Alpha Power: ${mockAlpha.toFixed(1)}`;
+        alphaBarFill.style.width = `${alphaPercent}%`;
+        alphaBarFill.style.backgroundColor = alphaColor;
+        alphaBarContainer.classList.toggle('glow-active', isAlphaHigh); // Apply Gold Glow
+        
+        // Theta Logic (Purple)
+        const thetaColor = getHslColor(mockTheta, THETA_HUE, MIN_POWER_THETA);
+        thetaLabel.textContent = `θ Theta Power: ${mockTheta.toFixed(1)}`;
+        thetaBarFill.style.width = `${thetaPercent}%`;
+        thetaBarFill.style.backgroundColor = thetaColor;
+        thetaBarContainer.classList.toggle('glow-active', isThetaHigh); // Apply Gold Glow
+
+        // 5. Check Win Condition
+        if (diverX >= treasureX - 10) { 
+            clearInterval(gameLoopInterval);
+            alertModal('VICTORY!', 'You successfully maintained Alpha-Theta crossover and reached the sunken treasure! Refresh the page to play again.');
+            diverX = treasureX - 10;
+        }
+
+        draw();
+    }
+    
+    // --- UTILITIES ---
+    // Custom Modal function (instead of alert())
+    function alertModal(title, message) {
+        if (oceanNoise) {
+            oceanNoise.stop();
+            oceanFilter.stop();
+        }
+
+        const existingModal = document.getElementById('custom-modal');
+        if (existingModal) existingModal.remove();
+
+        const modalHtml = `
+            <div id="custom-modal" class="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4">
+                <div class="bg-gray-800 text-white p-6 rounded-xl shadow-2xl max-w-sm w-full border-t-4 border-yellow-400 transform transition-all scale-100">
+                    <h3 class="text-2xl font-bold mb-3 text-yellow-400">${title}</h3>
+                    <p class="mb-5 text-gray-300">${message}</p>
+                    <button id="modal-close-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg transition duration-200">
+                        Continue
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        document.getElementById('modal-close-btn').onclick = () => {
+            document.getElementById('custom-modal').remove();
+        };
+    }
+
+    // --- INITIALIZATION ---
+    function initialize() {
+        const container = canvas.parentElement;
+        canvas.width = container.clientWidth;
+        canvas.height = Math.min(400, container.clientWidth * 0.5); 
+        
+        // Reset game state
+        diverX = 50;
+        treasureX = canvas.width - 50 - TREASURE_OFFSET; 
+        diverY = canvas.height * 0.5;
+        diverBubbles = []; 
+        
+        // Reset Status Variables
+        currentStatus = "initial"; 
+        pendingStatus = "initial"; 
+        pendingStatusStartTime = 0; 
+
+        // 1. Set Threshold Marker Positions
+        const alphaThresholdStart = (ALPHA_THRESHOLD / MAX_POWER) * 100;
+        alphaThresholdMarker.style.left = `${alphaThresholdStart}%`;
+        alphaThresholdMarker.style.width = `${100 - alphaThresholdStart}%`; 
+
+        const thetaThresholdStart = (THETA_THRESHOLD / MAX_POWER) * 100;
+        thetaThresholdMarker.style.left = `${thetaThresholdStart}%`;
+        thetaThresholdMarker.style.width = `${100 - thetaThresholdStart}%`;
+
+        // 2. Initialize ambient elements and sea life
+        initParticles();
+        initSeaAnimals();
+
+        // 3. Start the game loop
+        if (gameLoopInterval) clearInterval(gameLoopInterval);
+        gameLoopInterval = setInterval(updateGame, GAME_LOOP_INTERVAL_MS); 
+        
+        draw();
+    }
+
+    // Re-initialize on window resize
+    window.addEventListener('resize', () => {
+        clearInterval(gameLoopInterval);
+        initialize();
+    });
+
+    // Use a click/tap on the canvas to start audio
+    canvas.addEventListener('click', () => {
+        if (!audioInitialized) {
+            initAudio();
+            feedbackText.textContent = "Try to relax more and focus on depth.";
+        }
+    }, { once: true }); 
+
+    // Initial load
+    window.onload = initialize;
+
+</script>
+
+</body>
+</html>
